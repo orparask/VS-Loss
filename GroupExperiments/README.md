@@ -1,5 +1,11 @@
 Waterbirds experiments with Group-VS loss
 
+Implementation of Group-VS/CDT/LA losses for deep-net experiments on group-sensitive classification reported in Sec. 5.3 of the following paper:
+
+> Ganesh Ramachandra Kini, Orestis Paraskevas, Samet Oymak, Christos Thrampoulidis
+>
+> Label-Imbalanced and Group-Sensitive Classification under Overparameterization (https://arxiv.org/abs/2103.01550)
+
 We make use of the code from the authors of the following paper:
 
 > Shiori Sagawa\*, Pang Wei Koh\*, Tatsunori Hashimoto, and Percy Liang
@@ -11,6 +17,6 @@ Please read "Sagawa_et_al_README.md" for prerequisites for the Waterbirds datase
 
 python run_expt.py -s confounder -d CUB -t waterbird_complete95 -c forest2water2 --lr 0.001 --batch_size 64 --weight_decay 0.0001 --model resnet50 --n_epochs 300  --gamma 0.1 --generalization_adjustm    ent 0 --root_dir . --loss vs --vs_alpha 0.3 --dont_set_seed 1 --robust
 
-(Note that the hyperparameter vs_alpha is same as the hyperparameter gamma=0.3 used in the paper)
+(Note: the hyperparameter vs_alpha is same as the hyperparameter gamma=0.3 used in the paper)
 
 
