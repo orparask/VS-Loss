@@ -1,11 +1,10 @@
-import os, csv
+import os
 import argparse
 import pandas as pd
 import torch
 import torch.nn as nn
 import torchvision
 import numpy as np
-import time
 import torch.nn.functional as F
 
 from models import model_attributes
@@ -30,7 +29,7 @@ def main():
     parser.add_argument('--imbalance_ratio', type=float)
     # Data
     parser.add_argument('--fraction', type=float, default=1.0)
-    parser.add_argument('--root_dir', default=None)
+    parser.add_argument('--root_dir', default='group_imbalance')
     parser.add_argument('--reweight_groups', action='store_true', default=False)
     parser.add_argument('--augment_data', action='store_true', default=False)
     parser.add_argument('--val_fraction', type=float, default=0.1)
@@ -65,7 +64,7 @@ def main():
     # Misc
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--show_progress', default=False, action='store_true')
-    parser.add_argument('--log_dir', default='./logs')
+    parser.add_argument('--log_dir', default='./group_imbalance/logs')
     parser.add_argument('--log_every', default=50, type=int)
     parser.add_argument('--save_step', type=int, default=10)
     parser.add_argument('--save_best', action='store_true', default=False)
@@ -83,11 +82,11 @@ def main():
         args.warmup_steps = 0
 
     if os.path.exists(args.log_dir) and args.resume:
-        resume=True
-        mode='a'
+        resume = True
+        mode = 'a'
     else:
-        resume=False
-        mode='w'
+        resume = False
+        mode = 'w'
 
     ## Initialize logs
     if not os.path.exists(args.log_dir):
@@ -96,7 +95,7 @@ def main():
     logger = Logger(os.path.join(args.log_dir, 'log.txt'), mode)
     # Record args
     log_args(args, logger)
-    
+
     if args.dont_set_seed == 0:
         set_seed(args.seed)
         print('setting seed')
@@ -114,9 +113,9 @@ def main():
     n1 = train_data._group_counts[1].tolist()
     n2 = train_data._group_counts[2].tolist()
     n3 = train_data._group_counts[3].tolist()
-    n_max = max(n0,n1,n2,n3)
+    n_max = max(n0, n1, n2, n3)
 
-    loader_kwargs = {'batch_size':args.batch_size, 'num_workers':4, 'pin_memory':True}
+    loader_kwargs = {'batch_size': args.batch_size, 'num_workers': 4, 'pin_memory': True}
     train_loader = train_data.get_loader(train=True, reweight_groups=args.reweight_groups, **loader_kwargs)
     val_loader = val_data.get_loader(train=False, reweight_groups=None, **loader_kwargs)
     if test_data is not None:
@@ -179,12 +178,13 @@ def main():
     if args.gpu_num == 0:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     else:
-        os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
-        os.environ["CUDA_VISIBLE_DEVICES"]="1"
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"] = "1"
         device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     ## Define the objective
     if args.hinge:
-        assert args.dataset in ['CelebA', 'CUB'] # Only supports binary
+        assert args.dataset in ['CelebA', 'CUB']  # Only supports binary
+
         def hinge_loss(yhat, y):
             # The torch loss takes in three arguments so we need to split yhat
             # It also expects classes in {+1.0, -1.0} whereas by default we give them in {0, 1}
@@ -193,35 +193,40 @@ def main():
             torch_loss = torch.nn.MarginRankingLoss(margin=1.0, reduction='none')
             y = (y.float() * 2.0) - 1.0
             return torch_loss(yhat[:, 1], yhat[:, 0], y)
+
         criterion = hinge_loss
     elif args.loss == 'cdt':
-        criterion = VSLoss_4groups(n0=n0,n1=n1,n2=n2,n3=n3,mode='multiplicative',alpha=args.vs_alpha).cuda()
-    elif args.loss == 'la': 
-        criterion = VSLoss_4groups(n0=n0,n1=n1,n2=n2,n3=n3,mode='additive',alpha=args.vs_alpha).cuda()
+        criterion = VSLoss_4groups(n0=n0, n1=n1, n2=n2, n3=n3, mode='multiplicative', alpha=args.vs_alpha).cuda()
+    elif args.loss == 'la':
+        criterion = VSLoss_4groups(n0=n0, n1=n1, n2=n2, n3=n3, mode='additive', alpha=args.vs_alpha).cuda()
     elif args.loss == 'vs':
-        criterion = VSLoss_4groups(n0=n0,n1=n1,n2=n2,n3=n3,mode='combined',alpha=args.vs_alpha).cuda()
+        criterion = VSLoss_4groups(n0=n0, n1=n1, n2=n2, n3=n3, mode='combined', alpha=args.vs_alpha).cuda()
     elif args.loss == 'la_tau':
-        criterion = VSLoss_4groups(n0=n0,n1=n1,n2=n2,n3=n3,mode='la_tau',alpha=args.vs_alpha,tau=args.vs_tau).cuda()
+        criterion = VSLoss_4groups(n0=n0, n1=n1, n2=n2, n3=n3, mode='la_tau', alpha=args.vs_alpha,
+                                   tau=args.vs_tau).cuda()
     elif args.loss == 'vs_tau':
-        criterion = VSLoss_4groups(n0=n0,n1=n1,n2=n2,n3=n3,mode='vs_tau',alpha=args.vs_alpha,tau=args.vs_tau).cuda()
+        criterion = VSLoss_4groups(n0=n0, n1=n1, n2=n2, n3=n3, mode='vs_tau', alpha=args.vs_alpha,
+                                   tau=args.vs_tau).cuda()
     else:
-        criterion = torch.nn.CrossEntropyLoss(reduction='none')    
+        criterion = torch.nn.CrossEntropyLoss(reduction='none')
 
     if resume:
         df = pd.read_csv(os.path.join(args.log_dir, 'test.csv'))
-        epoch_offset = df.loc[len(df)-1,'epoch']+1
+        epoch_offset = df.loc[len(df) - 1, 'epoch'] + 1
         logger.write(f'starting from epoch {epoch_offset}')
     else:
-        epoch_offset=0
+        epoch_offset = 0
     train_csv_logger = CSVBatchLogger(os.path.join(args.log_dir, 'train.csv'), train_data.n_groups, mode=mode)
-    val_csv_logger =  CSVBatchLogger(os.path.join(args.log_dir, 'val.csv'), train_data.n_groups, mode=mode)
-    test_csv_logger =  CSVBatchLogger(os.path.join(args.log_dir, 'test.csv'), train_data.n_groups, mode=mode)
+    val_csv_logger = CSVBatchLogger(os.path.join(args.log_dir, 'val.csv'), train_data.n_groups, mode=mode)
+    test_csv_logger = CSVBatchLogger(os.path.join(args.log_dir, 'test.csv'), train_data.n_groups, mode=mode)
 
-    train(model, criterion, data, logger, train_csv_logger, val_csv_logger, test_csv_logger, args, epoch_offset=epoch_offset)
+    train(model, criterion, data, logger, train_csv_logger, val_csv_logger, test_csv_logger, args,
+          epoch_offset=epoch_offset)
 
     train_csv_logger.close()
     val_csv_logger.close()
     test_csv_logger.close()
+
 
 def check_args(args):
     if args.shift_type == 'confounder':
@@ -231,40 +236,45 @@ def check_args(args):
         assert args.minority_fraction
         assert args.imbalance_ratio
 
+
 class VSLoss_4groups(nn.Module):
-    def __init__(self, n0,n1,n2,n3, alpha, tau = 1, mode='multiplicative', weight=None):
+    def __init__(self, n0, n1, n2, n3, alpha, tau=1, mode='multiplicative', weight=None):
         super(VSLoss_4groups, self).__init__()
-        n_max = max(n0,n1,n2,n3)
-        n_sum = sum([n0,n1,n2,n3])
+        n_max = max(n0, n1, n2, n3)
+        n_sum = sum([n0, n1, n2, n3])
         if mode == 'multiplicative':
             iota_list = np.zeros(4)
-            Delta_list = np.array([n0/n_max, n1/n_max, n2/n_max, n3/n_max]) ** alpha
+            Delta_list = np.array([n0 / n_max, n1 / n_max, n2 / n_max, n3 / n_max]) ** alpha
         elif mode == 'additive':
-            iota_list = np.array([n0/n_max, n1/n_max, n2/n_max, n3/n_max]) ** -alpha
+            iota_list = np.array([n0 / n_max, n1 / n_max, n2 / n_max, n3 / n_max]) ** -alpha
             Delta_list = np.ones(4)
         elif mode == 'combined':
-            iota_list = np.array([n0/n_max, n1/n_max, n2/n_max, n3/n_max]) ** -alpha
-            Delta_list = np.array([n0/n_max, n1/n_max, n2/n_max, n3/n_max]) ** alpha
+            iota_list = np.array([n0 / n_max, n1 / n_max, n2 / n_max, n3 / n_max]) ** -alpha
+            Delta_list = np.array([n0 / n_max, n1 / n_max, n2 / n_max, n3 / n_max]) ** alpha
         elif mode == 'la_tau':
-            iota_list = -tau*np.array([np.log(n0/n_sum), np.log(n1/n_sum), np.log(n2/n_sum), np.log(n3/n_sum)])
+            iota_list = -tau * np.array(
+                [np.log(n0 / n_sum), np.log(n1 / n_sum), np.log(n2 / n_sum), np.log(n3 / n_sum)])
             Delta_list = np.ones(4)
         elif mode == 'vs_tau':
-            iota_list = -tau*np.array([np.log(n0/n_sum), np.log(n1/n_sum), np.log(n2/n_sum), np.log(n3/n_sum)])
-            Delta_list = np.array([n0/n_max, n1/n_max, n2/n_max, n3/n_max]) ** alpha
+            iota_list = -tau * np.array(
+                [np.log(n0 / n_sum), np.log(n1 / n_sum), np.log(n2 / n_sum), np.log(n3 / n_sum)])
+            Delta_list = np.array([n0 / n_max, n1 / n_max, n2 / n_max, n3 / n_max]) ** alpha
 
         self.iota_list = torch.cuda.FloatTensor(iota_list)
         self.Delta_list = torch.cuda.FloatTensor(Delta_list)
         self.weight = weight
+
     def forward(self, x, target, group):
         group = group.squeeze(-1)
         index = torch.zeros((x.shape[0], 2), dtype=torch.uint8)
-        group_one_hot = torch.nn.functional.one_hot(group,num_classes=4)
-        batch_iota = torch.matmul(group_one_hot.float(),self.iota_list.view(4,1).repeat(1,2).float())
-        batch_Delta = torch.matmul(group_one_hot.float(),self.Delta_list.view(4,1).repeat(1,2).float())
-        
+        group_one_hot = torch.nn.functional.one_hot(group, num_classes=4)
+        batch_iota = torch.matmul(group_one_hot.float(), self.iota_list.view(4, 1).repeat(1, 2).float())
+        batch_Delta = torch.matmul(group_one_hot.float(), self.Delta_list.view(4, 1).repeat(1, 2).float())
+
         output = x * batch_Delta - batch_iota
         cel = torch.nn.CrossEntropyLoss(reduction='none')
         return cel(output, target)
 
-if __name__=='__main__':
+
+if __name__ == '__main__':
     main()

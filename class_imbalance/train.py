@@ -1,37 +1,31 @@
 import argparse
-import os
 import random
 import time
 import warnings
-import sys
-import numpy as np
-import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
-import torch.multiprocessing as mp
 import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import models
 from tensorboardX import SummaryWriter
-from sklearn.metrics import confusion_matrix
 from utils import *
-from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
+from generate_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 from losses import LDAMLoss, VSLoss
 
 model_names = sorted(name for name in models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(models.__dict__[name]))
+                     if name.islower() and not name.startswith("__")
+                     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch Cifar Training')
 parser.add_argument('--dataset', default='cifar10', help='dataset setting')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     choices=model_names,
                     help='model architecture: ' +
-                        ' | '.join(model_names) +
-                        ' (default: resnet32)')
+                         ' | '.join(model_names) +
+                         ' (default: resnet32)')
 parser.add_argument('--loss_type', default="CE", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=0.01, type=float, help='imbalance factor')
@@ -68,13 +62,12 @@ parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
-parser.add_argument('--root_log', type=str, default='log')
-parser.add_argument('--root_model', type=str, default='checkpoint')
+parser.add_argument('--root_log', type=str, default='class_imbalance/log')
+parser.add_argument('--root_model', type=str, default='class_imbalance/checkpoint')
 best_acc1 = 0
 
 
 def main():
-
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -95,8 +88,8 @@ def main():
                       'disable data parallelism.')
 
     args.store_name = '_'.join([args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type,
-                                                str(args.imb_factor), str(args.epochs), str(args.seed), str(args.tau),
-                                                str(args.gamma), args.exp_str])
+                                str(args.imb_factor), str(args.epochs), str(args.seed), str(args.tau),
+                                str(args.gamma), args.exp_str])
 
     tf_writer = SummaryWriter(log_dir=os.path.join(args.root_log, args.store_name))
     prepare_folders(args)
@@ -162,15 +155,15 @@ def main_worker(gpu, args, log_writer):
     ])
 
     if args.dataset == 'cifar10':
-        train_dataset = IMBALANCECIFAR10(root='./data', imb_type=args.imb_type, imb_factor=args.imb_factor,
+        train_dataset = IMBALANCECIFAR10(root='./class_imbalance/data', imb_type=args.imb_type, imb_factor=args.imb_factor,
                                          rand_number=args.rand_number, train=True, download=True,
                                          transform=transform_train)
-        val_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_val)
+        val_dataset = datasets.CIFAR10(root='./class_imbalance/data', train=False, download=True, transform=transform_val)
     elif args.dataset == 'cifar100':
-        train_dataset = IMBALANCECIFAR100(root='./data', imb_type=args.imb_type, imb_factor=args.imb_factor,
+        train_dataset = IMBALANCECIFAR100(root='./class_imbalance/data', imb_type=args.imb_type, imb_factor=args.imb_factor,
                                           rand_number=args.rand_number, train=True, download=True,
                                           transform=transform_train)
-        val_dataset = datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_val)
+        val_dataset = datasets.CIFAR100(root='./class_imbalance/data', train=False, download=True, transform=transform_val)
     else:
         warnings.warn('Dataset is not listed')
         return
@@ -181,9 +174,9 @@ def main_worker(gpu, args, log_writer):
     print(cls_num_list)
     args.cls_num_list = cls_num_list
     args.cls_priors = cls_priors
-    
+
     train_sampler = None
-        
+
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
@@ -202,8 +195,8 @@ def main_worker(gpu, args, log_writer):
         adjust_learning_rate(optimizer, epoch, args)
 
         if args.train_rule == 'None':
-            train_sampler = None  
-            per_cls_weights = None 
+            train_sampler = None
+            per_cls_weights = None
         elif args.train_rule == 'Resample':
             train_sampler = ImbalancedDatasetSampler(train_dataset)
             per_cls_weights = None
@@ -224,32 +217,33 @@ def main_worker(gpu, args, log_writer):
             per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
         else:
             warnings.warn('Sample rule is not listed')
-        
+
         if args.loss_type == 'CE':
             criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
         elif args.loss_type == 'LDAM':
             criterion = LDAMLoss(cls_num_list=cls_num_list, max_m=0.5, s=30, weight=per_cls_weights).cuda(args.gpu)
         elif args.loss_type == 'LA':
-            criterion = VSLoss(cls_num_list=args.cls_num_list, tau=args.tau, gamma=0, weight=per_cls_weights).cuda(args.gpu)
+            criterion = VSLoss(cls_num_list=args.cls_num_list, tau=args.tau, gamma=0,
+                               weight=per_cls_weights).cuda(args.gpu)
         elif args.loss_type == 'CDT':
-            criterion = VSLoss(cls_num_list=args.cls_num_list, tau=0, gamma=args.gamma, weight=per_cls_weights).cuda(args.gpu)
+            criterion = VSLoss(cls_num_list=args.cls_num_list, tau=0, gamma=args.gamma,
+                               weight=per_cls_weights).cuda(args.gpu)
         elif args.loss_type == 'VS':
-            criterion = VSLoss(cls_num_list=args.cls_num_list, tau=args.tau, gamma=args.gamma, weight=per_cls_weights).cuda(args.gpu)
+            criterion = VSLoss(cls_num_list=args.cls_num_list, tau=args.tau, gamma=args.gamma,
+                               weight=per_cls_weights).cuda(args.gpu)
         elif args.loss_type == 'mixed':
             if epoch > 5:
-                criterion = VSLoss(cls_num_list=args.cls_num_list, tau=0, gamma=args.gamma,
-                                  weight=per_cls_weights).cuda(args.gpu)
-                # criterion = VSLoss(cls_num_list=args.cls_num_list, tau=args.tau, gamma=args.gamma, weight=per_cls_weights).cuda(args.gpu)
+                criterion = VSLoss(cls_num_list=args.cls_num_list, tau=args.tau, gamma=args.gamma,
+                                   weight=per_cls_weights).cuda(args.gpu)
             else:
                 criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
-                # criterion = VSLoss(cls_num_list=args.cls_num_list, tau=args.tau, gamma=0, weight=per_cls_weights).cuda(args.gpu)
         else:
             warnings.warn('Loss type is not listed')
             return
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args, log_training, log_writer)
-        
+
         # evaluate on validation set
         acc1 = validate(val_loader, model, criterion, epoch, args, log_testing, log_writer)
 
@@ -291,7 +285,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, log_write
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
-    
+
     # switch to train mode
     model.train()
 
@@ -372,7 +366,7 @@ def validate(val_loader, model, criterion, epoch, args, log=None, log_writer=Non
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
-    
+
     # switch to evaluate mode
     model.eval()
     all_preds = []
@@ -418,7 +412,8 @@ def validate(val_loader, model, criterion, epoch, args, log=None, log_writer=Non
         cls_acc = cls_hit / cls_cnt
         output = ('{flag} Results: Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Loss {loss.avg:.5f}'
                   .format(flag=flag, top1=top1, top5=top5, loss=losses))
-        out_cls_acc = '%s Class Accuracy: %s'%(flag,(np.array2string(cls_acc, separator=',', formatter={'float_kind': lambda x: "%.3f" % x})))
+        out_cls_acc = '%s Class Accuracy: %s' % (flag, (np.array2string(cls_acc, separator=',',
+                                                                        formatter={'float_kind': lambda x: "%.3f" % x})))
         print(output)
         print(out_cls_acc)
 
@@ -431,7 +426,7 @@ def validate(val_loader, model, criterion, epoch, args, log=None, log_writer=Non
         log_writer.add_scalar('acc/test_' + flag + '_top1', top1.avg, epoch)
         log_writer.add_scalar('acc/test_' + flag + '_top5', top5.avg, epoch)
         if args.dataset == 'cifar10':
-            log_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i):x for i, x in enumerate(cls_acc)}, epoch)
+            log_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i): x for i, x in enumerate(cls_acc)}, epoch)
 
     return top1.avg
 

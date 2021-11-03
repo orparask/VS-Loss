@@ -7,7 +7,6 @@ import torch.nn.functional as F
 class BinaryVSLoss(nn.Module):
 
     def __init__(self, iota_pos=0.0, iota_neg=0.0, Delta_pos=1.0, Delta_neg=1.0, weight=None):
-
         super(BinaryVSLoss, self).__init__()
         iota_list = torch.tensor([iota_neg, iota_pos]).to(torch.device('cuda'))
         Delta_list = torch.tensor([Delta_neg, Delta_pos]).to(torch.device('cuda'))
@@ -17,7 +16,6 @@ class BinaryVSLoss(nn.Module):
         self.weight = weight
 
     def forward(self, x, target):
-
         index = torch.zeros((x.shape[0], 2), dtype=torch.uint8)
         index_float = index.type(torch.cuda.FloatTensor)
         index_float.scatter_(1, target.long(), 1)
@@ -30,13 +28,12 @@ class BinaryVSLoss(nn.Module):
 
         output = x * batch_Delta - batch_iota
 
-        return F.binary_cross_entropy_with_logits(30*output, target, weight=self.weight)
+        return F.binary_cross_entropy_with_logits(30 * output, target, weight=self.weight)
 
 
 class VSLoss(nn.Module):
 
     def __init__(self, cls_num_list, gamma=0.3, tau=1.0, weight=None):
-
         super(VSLoss, self).__init__()
 
         cls_probs = [cls_num / sum(cls_num_list) for cls_num in cls_num_list]
@@ -51,7 +48,6 @@ class VSLoss(nn.Module):
         self.weight = weight
 
     def forward(self, x, target):
-
         output = x / self.Delta_list + self.iota_list
 
         return F.cross_entropy(output, target, weight=self.weight)
@@ -78,7 +74,6 @@ class LDAMLoss(nn.Module):
         batch_m = batch_m.view((-1, 1))
         x_m = x - batch_m
 
-        # print(x)
         output = torch.where(index, x_m, x)
-        # print(output)
+
         return F.cross_entropy(self.s * output, target, weight=self.weight)

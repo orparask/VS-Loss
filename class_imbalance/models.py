@@ -91,71 +91,6 @@ class BasicBlock(nn.Module):
         return out
 
 
-class LeNet(nn.Module):
-
-    def __init__(self, use_norm=False):
-        super(LeNet, self).__init__()
-
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=6, kernel_size=5, stride=1, padding=0)
-        self.conv2 = nn.Conv2d(in_channels=6, out_channels=16, kernel_size=5, stride=1, padding=0)
-        self.conv3 = nn.Conv2d(in_channels=16, out_channels=120, kernel_size=5, stride=1, padding=0)
-        self.linear1 = nn.Linear(120, 84)
-        if use_norm:
-            self.linear2 = NormedLinear(84, 10)
-        else:
-            self.linear2 = nn.Linear(84, 10)
-        self.relu = nn.ReLU()
-        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.relu(x)
-        x = self.avgpool(x)
-        x = self.conv2(x)
-        x = self.relu(x)
-        x = self.avgpool(x)
-        x = self.conv3(x)
-        x = self.relu(x)
-
-        x = x.reshape(x.shape[0], -1)
-        x = self.linear1(x)
-        x = self.relu(x)
-        x = self.linear2(x)
-
-        return x
-
-
-class CreditNet(nn.Module):
-
-    def __init__(self, classifier_bias=None):
-        super(CreditNet, self).__init__()
-
-        self.linear1 = nn.Linear(29, 64)
-        self.linear2 = nn.Linear(64, 64)
-        self.linear3 = nn.Linear(64, 32)
-        self.classifier = nn.Linear(32, 1)
-        self.relu = nn.ReLU()
-
-        if classifier_bias is not None:
-            self.set_classifier_bias(classifier_bias)
-
-    def set_classifier_bias(self, classifier_bias):
-        self.classifier.bias.data.fill_(classifier_bias)
-
-    def forward(self, x):
-
-        x = self.linear1(x)
-        x = self.relu(x)
-        x = self.linear2(x)
-        x = self.relu(x)
-        x = self.linear3(x)
-        x = self.relu(x)
-        x = self.classifier(x)
-
-        return x
-
-
 class ResNet_s(nn.Module):
 
     def __init__(self, block, num_blocks, num_classes=10, use_norm=False):
@@ -217,21 +152,3 @@ def resnet110():
 
 def resnet1202():
     return ResNet_s(BasicBlock, [200, 200, 200])
-
-
-def test(net):
-    import numpy as np
-    total_params = 0
-
-    for x in filter(lambda p: p.requires_grad, net.parameters()):
-        total_params += np.prod(x.data.numpy().shape)
-    print("Total number of params", total_params)
-    print("Total layers", len(list(filter(lambda p: p.requires_grad and len(p.data.size())>1, net.parameters()))))
-
-
-if __name__ == "__main__":
-    for net_name in __all__:
-        if net_name.startswith('resnet'):
-            print(net_name)
-            test(globals()[net_name]())
-            print()

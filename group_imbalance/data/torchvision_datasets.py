@@ -1,5 +1,3 @@
-import torch
-from torch.utils.data import Subset
 import torchvision
 import torchvision.transforms as transforms
 from models import model_attributes
